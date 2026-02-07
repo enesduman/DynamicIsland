@@ -4,10 +4,12 @@ import android.Manifest
 import android.content.ComponentName
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.graphics.Typeface
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
+import android.view.View
 import android.widget.*
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
@@ -27,50 +29,41 @@ class MainActivity : AppCompatActivity() {
         val sv = ScrollView(this)
         val root = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(24), dp(48), dp(24), dp(24)) }
 
-        root.addView(tv("⬬ Dynamic Island", 26f, true))
-        root.addView(tv("Gerçek bildirimler • Müzik • Aramalar • Şarj", 13f, false, 0xFF888888.toInt()).apply {
+        root.addView(tv("Dynamic Island", 26f, true))
+        root.addView(tv("Gercek bildirimler, muzik, aramalar, sarj", 13f, false, 0xFF888888.toInt()).apply {
             setPadding(0, dp(4), 0, dp(28)) })
 
-        root.addView(tv("Gerekli İzinler", 18f, true).apply { setPadding(0, 0, 0, dp(12)) })
+        root.addView(tv("Gerekli Izinler", 18f, true).apply { setPadding(0, 0, 0, dp(12)) })
 
         s1 = tv("", 14f); root.addView(s1)
-        root.addView(btn("Overlay İzni") { startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:$packageName"))) })
+        root.addView(btn("Overlay Izni") { startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:$packageName"))) })
 
         s2 = tv("", 14f); root.addView(s2)
-        root.addView(btn("Bildirim Erişimi") { startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)) })
+        root.addView(btn("Bildirim Erisimi") { startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)) })
 
         s3 = tv("", 14f); root.addView(s3)
-        root.addView(btn("Telefon İzni") { phonePL.launch(Manifest.permission.READ_PHONE_STATE) })
+        root.addView(btn("Telefon Izni") { phonePL.launch(Manifest.permission.READ_PHONE_STATE) })
 
         s4 = tv("", 14f); root.addView(s4)
-        if (Build.VERSION.SDK_INT >= 33) root.addView(btn("Bildirim İzni") {
+        if (Build.VERSION.SDK_INT >= 33) root.addView(btn("Bildirim Izni") {
             notifPL.launch(Manifest.permission.POST_NOTIFICATIONS) })
 
-        root.addView(View(this).apply { layoutParams = LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.MATCH_PARENT, dp(1)).apply { topMargin = dp(16); bottomMargin = dp(16) }
-            setBackgroundColor(0xFFE0E0E0.toInt()) })
+        root.addView(divider())
 
-        sw = Switch(this).apply { text = "Dynamic Island'ı Etkinleştir"; textSize = 16f
+        sw = Switch(this).apply { text = "Dynamic Island Etkinlestir"; textSize = 16f
             setPadding(0, dp(8), 0, dp(8))
             setOnCheckedChangeListener { _, on ->
                 if (on) { if (allPerms()) { PrefsManager.setEnabled(this@MainActivity, true)
                     OverlayService.start(this@MainActivity)
-                    Toast.makeText(this@MainActivity, "✅ Dynamic Island aktif!", Toast.LENGTH_SHORT).show()
-                } else { isChecked = false; Toast.makeText(this@MainActivity, "❌ Önce tüm izinleri verin", Toast.LENGTH_LONG).show() }
+                    Toast.makeText(this@MainActivity, "Dynamic Island aktif!", Toast.LENGTH_SHORT).show()
+                } else { isChecked = false; Toast.makeText(this@MainActivity, "Once tum izinleri verin", Toast.LENGTH_LONG).show() }
                 } else { PrefsManager.setEnabled(this@MainActivity, false); OverlayService.stop(this@MainActivity)
                     Toast.makeText(this@MainActivity, "Dynamic Island durduruldu", Toast.LENGTH_SHORT).show() }
             } }
         root.addView(sw)
 
-        root.addView(tv("""
-            |
-            |Nasıl çalışır:
-            |• Spotify/YouTube Music açın → Şarkı bilgisi görünür
-            |• Biri arasın → Arayan kişi ve süre görünür
-            |• WhatsApp mesajı gelsin → Bildirim gösterilir
-            |• Şarj kablosu takın → Pil yüzdesi görünür
-            |• Island'a dokunarak genişletin/daraltın
-        """.trimMargin(), 13f, false, 0xFF666666.toInt()))
+        root.addView(tv("Spotify/YouTube Music acin, biri arasin, WhatsApp mesaji gelsin veya sarj takin - Dynamic Island gorunur.", 13f, false, 0xFF666666.toInt()).apply {
+            setPadding(0, dp(16), 0, 0) })
 
         sv.addView(root); setContentView(sv) }
 
@@ -78,9 +71,9 @@ class MainActivity : AppCompatActivity() {
 
     private fun updateUI() {
         s1.text = st("Overlay", hasOverlay()); s1.setTextColor(if (hasOverlay()) 0xFF4CAF50.toInt() else 0xFFE53935.toInt())
-        s2.text = st("Bildirim Erişimi", hasNotifAccess()); s2.setTextColor(if (hasNotifAccess()) 0xFF4CAF50.toInt() else 0xFFE53935.toInt())
+        s2.text = st("Bildirim Erisimi", hasNotifAccess()); s2.setTextColor(if (hasNotifAccess()) 0xFF4CAF50.toInt() else 0xFFE53935.toInt())
         s3.text = st("Telefon", hasPhone()); s3.setTextColor(if (hasPhone()) 0xFF4CAF50.toInt() else 0xFFE53935.toInt())
-        s4.text = st("Bildirim Gönderme", hasPostNotif()); s4.setTextColor(if (hasPostNotif()) 0xFF4CAF50.toInt() else 0xFFE53935.toInt())
+        s4.text = st("Bildirim Gonderme", hasPostNotif()); s4.setTextColor(if (hasPostNotif()) 0xFF4CAF50.toInt() else 0xFFE53935.toInt())
     }
 
     private fun allPerms() = hasOverlay() && hasNotifAccess() && hasPhone() && hasPostNotif()
@@ -90,13 +83,16 @@ class MainActivity : AppCompatActivity() {
     private fun hasPhone() = ContextCompat.checkSelfPermission(this, Manifest.permission.READ_PHONE_STATE) == PackageManager.PERMISSION_GRANTED
     private fun hasPostNotif() = if (Build.VERSION.SDK_INT >= 33) ContextCompat.checkSelfPermission(this,
         Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED else true
-    private fun st(n: String, ok: Boolean) = "$n: ${if (ok) "✅ Verildi" else "❌ Gerekli"}"
+    private fun st(n: String, ok: Boolean) = "$n: ${if (ok) "Verildi" else "Gerekli"}"
     private fun dp(v: Int) = (v * resources.displayMetrics.density).toInt()
     private fun tv(t: String, s: Float, bold: Boolean = false, c: Int = 0xFF000000.toInt()) = TextView(this).apply {
         text = t; textSize = s; setTextColor(c)
-        if (bold) typeface = android.graphics.Typeface.create(android.graphics.Typeface.DEFAULT, android.graphics.Typeface.BOLD)
+        if (bold) typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
         layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT) }
     private fun btn(t: String, click: () -> Unit) = Button(this).apply { text = t; textSize = 13f; isAllCaps = false
         setOnClickListener { click() }; layoutParams = LinearLayout.LayoutParams(
         LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(4); bottomMargin = dp(12) } }
+    private fun divider(): View { val v = View(this); v.layoutParams = LinearLayout.LayoutParams(
+        LinearLayout.LayoutParams.MATCH_PARENT, dp(1)).apply { topMargin = dp(16); bottomMargin = dp(16) }
+        v.setBackgroundColor(0xFFE0E0E0.toInt()); return v }
 }
