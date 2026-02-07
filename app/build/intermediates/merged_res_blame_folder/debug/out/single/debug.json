@@ -1,0 +1,30 @@
+[
+    {
+        "merged": "com.dynamicisland.app-merged_res-4:/drawable_ic_stop.xml.flat",
+        "source": "com.dynamicisland.app-main-6:/drawable/ic_stop.xml"
+    },
+    {
+        "merged": "com.dynamicisland.app-merged_res-4:/mipmap-hdpi_ic_launcher.xml.flat",
+        "source": "com.dynamicisland.app-main-6:/mipmap-hdpi/ic_launcher.xml"
+    },
+    {
+        "merged": "com.dynamicisland.app-merged_res-4:/mipmap-xxhdpi_ic_launcher.xml.flat",
+        "source": "com.dynamicisland.app-main-6:/mipmap-xxhdpi/ic_launcher.xml"
+    },
+    {
+        "merged": "com.dynamicisland.app-merged_res-4:/drawable_ic_island.xml.flat",
+        "source": "com.dynamicisland.app-main-6:/drawable/ic_island.xml"
+    },
+    {
+        "merged": "com.dynamicisland.app-merged_res-4:/drawable_ic_launcher_foreground.xml.flat",
+        "source": "com.dynamicisland.app-main-6:/drawable/ic_launcher_foreground.xml"
+    },
+    {
+        "merged": "com.dynamicisland.app-merged_res-4:/drawable_ic_launcher_background.xml.flat",
+        "source": "com.dynamicisland.app-main-6:/drawable/ic_launcher_background.xml"
+    },
+    {
+        "merged": "com.dynamicisland.app-merged_res-4:/mipmap-xhdpi_ic_launcher.xml.flat",
+        "source": "com.dynamicisland.app-main-6:/mipmap-xhdpi/ic_launcher.xml"
+    }
+]

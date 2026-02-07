@@ -1,0 +1,11 @@
+R_DEF: Internal format may change without notice
+local
+color black
+color white
+drawable ic_island
+drawable ic_launcher_background
+drawable ic_launcher_foreground
+drawable ic_stop
+mipmap ic_launcher
+string app_name
+style Theme.DynamicIsland

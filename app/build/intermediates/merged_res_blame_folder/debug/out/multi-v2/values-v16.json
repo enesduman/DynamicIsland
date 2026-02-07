@@ -1,0 +1,38 @@
+{
+    "logs": [
+        {
+            "outputFile": "com.dynamicisland.app-mergeDebugResources-2:/values-v16/values-v16.xml",
+            "map": [
+                {
+                    "source": "/root/.gradle/caches/9.3.1/transforms/11d7de035ce034cdc90e41073f7b9ce4/transformed/core-1.12.0/res/values-v16/values-v16.xml",
+                    "from": {
+                        "startLines": "2",
+                        "startColumns": "4",
+                        "startOffsets": "55",
+                        "endColumns": "65",
+                        "endOffsets": "116"
+                    }
+                },
+                {
+                    "source": "/root/.gradle/caches/9.3.1/transforms/8542a972185bee16b74cdc4d3abe5fb0/transformed/appcompat-1.6.1/res/values-v16/values-v16.xml",
+                    "from": {
+                        "startLines": "2",
+                        "startColumns": "4",
+                        "startOffsets": "55",
+                        "endLines": "5",
+                        "endColumns": "12",
+                        "endOffsets": "223"
+                    },
+                    "to": {
+                        "startLines": "3",
+                        "startColumns": "4",
+                        "startOffsets": "121",
+                        "endLines": "6",
+                        "endColumns": "12",
+                        "endOffsets": "289"
+                    }
+                }
+            ]
+        }
+    ]
+}
