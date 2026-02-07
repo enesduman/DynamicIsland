@@ -15,6 +15,7 @@ import androidx.lifecycle.LifecycleService
 import androidx.lifecycle.lifecycleScope
 import com.dynamicisland.MainActivity
 import com.dynamicisland.R
+import com.dynamicisland.MainActivity
 import com.dynamicisland.model.IslandStateManager
 import com.dynamicisland.overlay.IslandOverlayView
 import com.dynamicisland.util.PrefsManager
