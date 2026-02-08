@@ -89,6 +89,20 @@ class OverlayService : LifecycleService() {
         IslandStateManager.btEnabled = PrefsManager.getBtEnabled(this)
     }
 
+    private fun getStatusBarHeight(): Int {
+        val resId = resources.getIdentifier("status_bar_height", "dimen", "android")
+        return if (resId > 0) resources.getDimensionPixelSize(resId) else (24 * resources.displayMetrics.density).toInt()
+    }
+
+    private fun getCutoutSafeY(): Int {
+        // Status bar yuksekligi = dokunulamaz alan
+        // Overlay'i TAM status bar'in alt kenarinin ALTINA koy
+        val statusBarH = getStatusBarHeight()
+        val userOffset = PrefsManager.getYOffset(this)
+        // Minimum: status bar alti. Kullanici yukari kaydirirsa bile status bar'a girmez
+        return maxOf(statusBarH, userOffset)
+    }
+
     private fun setup() {
         if (ov != null) return
         wm = getSystemService(WINDOW_SERVICE) as WindowManager
@@ -96,30 +110,34 @@ class OverlayService : LifecycleService() {
         ov = IslandOverlayView(this, mt, PrefsManager.getIdleWidth(this), PrefsManager.getIdleHeight(this))
         ov?.setGlowEnabled(PrefsManager.getGlowEnabled(this))
 
-        val wmType = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O)
-            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
-        else @Suppress("DEPRECATION") WindowManager.LayoutParams.TYPE_PHONE
+        val safeY = getCutoutSafeY()
 
         lp = WindowManager.LayoutParams(
             WindowManager.LayoutParams.MATCH_PARENT,
             WindowManager.LayoutParams.WRAP_CONTENT,
-            wmType,
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
+            else @Suppress("DEPRECATION") WindowManager.LayoutParams.TYPE_PHONE,
+            // CRITICAL FLAG COMBINATION:
+            // FLAG_NOT_FOCUSABLE: Keyboard/focus sorunlarini onler
+            // FLAG_NOT_TOUCH_MODAL: Overlay disindaki touch'lari gecir
+            // FLAG_LAYOUT_IN_SCREEN: Status bar alaniyla koordinasyon
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
                 WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
                 WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
-                WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS or
-                WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED or
-                WindowManager.LayoutParams.FLAG_DISMISS_KEYGUARD or
-                WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON,
+                WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED,
             PixelFormat.TRANSLUCENT
         ).apply {
             gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
-            y = PrefsManager.getYOffset(this@OverlayService)
+            y = safeY
+            // CUTOUT MODE: Overlay cutout bolgesine CIZILIR ama touch safe bolgede
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
                 layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
             }
         }
-        try { wm?.addView(ov, lp) } catch (_: Exception) {}
+
+        try { wm?.addView(ov, lp) } catch (e: Exception) {
+            android.util.Log.e("DI", "Overlay add failed: ${e.message}")
+        }
     }
 
     private fun registerBattery() {
@@ -132,23 +150,16 @@ class OverlayService : LifecycleService() {
                 val pct = (level * 100) / scale
                 val plugged = intent.getIntExtra(BatteryManager.EXTRA_PLUGGED, 0)
                 val isFast = plugged == BatteryManager.BATTERY_PLUGGED_AC
-
-                IslandStateManager.updateCharging(ChargingState(
-                    isCharging = isCharging,
-                    level = pct,
-                    isUSB = plugged == BatteryManager.BATTERY_PLUGGED_USB,
-                    isFast = isFast
-                ))
+                IslandStateManager.updateCharging(ChargingState(isCharging, pct, plugged == BatteryManager.BATTERY_PLUGGED_USB, isFast))
             }
         }
-        val filter = IntentFilter(Intent.ACTION_BATTERY_CHANGED)
-        registerReceiver(batteryReceiver, filter)
+        registerReceiver(batteryReceiver, IntentFilter(Intent.ACTION_BATTERY_CHANGED))
     }
 
     private fun refreshOverlay() {
         loadFeatureFlags()
         lp?.let { p ->
-            p.y = PrefsManager.getYOffset(this)
+            p.y = getCutoutSafeY()
             try { ov?.let { wm?.updateViewLayout(it, p) } } catch (_: Exception) {}
         }
         ov?.updateSizes(PrefsManager.getIdleWidth(this), PrefsManager.getIdleHeight(this))
@@ -171,10 +182,8 @@ class OverlayService : LifecycleService() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O)
             (getSystemService(NotificationManager::class.java)).createNotificationChannel(
                 NotificationChannel(CID, "Dynamic Island", NotificationManager.IMPORTANCE_MIN).apply {
-                    setShowBadge(false)
-                    setSound(null, null)
-                    enableLights(false)
-                    enableVibration(false)
+                    setShowBadge(false); setSound(null, null)
+                    enableLights(false); enableVibration(false)
                     lockscreenVisibility = Notification.VISIBILITY_SECRET
                 })
         val si = PendingIntent.getService(this, 0,

@@ -38,11 +38,11 @@ class IslandOverlayView(
     private var cur = IslandState()
     private var dismissR: Runnable? = null
     private var autoCollapseR: Runnable? = null
+    private val NOTIF_DISMISS_MS = 3000L
     private val glowView: View
     private val container: LinearLayout
     private val compactV: LinearLayout
     private val expandedV: FrameLayout
-    // Secondary (split) island
     private val secondaryContainer: LinearLayout
     private val secondaryContent: LinearLayout
     private var glowEnabled = true
@@ -51,8 +51,12 @@ class IslandOverlayView(
     private val EXPANDED_RADIUS = 24f
     private val IDLE_RADIUS = 16f
     private val AUTO_COLLAPSE_MS = 5000L
-    private val NOTIF_DISMISS_MS = 3000L
     private val SPLIT_GAP = 8f
+
+    // Swipe detection
+    private var touchStartY = 0f
+    private var touchStartX = 0f
+    private val SWIPE_THRESHOLD = dp(30f)
 
     init {
         glowView = View(context).apply {
@@ -64,7 +68,7 @@ class IslandOverlayView(
         container = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER
             layoutParams = LayoutParams(dp(idleW.toFloat()), dp(idleH.toFloat())).apply {
-                gravity = Gravity.CENTER_HORIZONTAL; topMargin = dp(4f)
+                gravity = Gravity.CENTER_HORIZONTAL; topMargin = dp(0f)
             }
             background = GradientDrawable().apply { setColor(Color.BLACK); cornerRadius = dp(IDLE_RADIUS).toFloat() }
             elevation = dp(12f).toFloat(); clipChildren = true; clipToPadding = true
@@ -85,17 +89,11 @@ class IslandOverlayView(
         container.addView(expandedV)
         addView(container)
 
-        // Secondary island (sol tarafta kucuk balon)
         secondaryContainer = LinearLayout(context).apply {
             orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER
-            layoutParams = LayoutParams(dp(40f), dp(idleH.toFloat())).apply {
-                gravity = Gravity.TOP or Gravity.START
-                topMargin = dp(4f)
-            }
+            layoutParams = LayoutParams(dp(40f), dp(idleH.toFloat())).apply { gravity = Gravity.TOP or Gravity.START }
             background = GradientDrawable().apply { setColor(Color.BLACK); cornerRadius = dp(IDLE_RADIUS).toFloat() }
-            elevation = dp(12f).toFloat()
-            visibility = View.GONE
-            setPadding(dp(6f), dp(4f), dp(6f), dp(4f))
+            elevation = dp(12f).toFloat(); visibility = View.GONE; setPadding(dp(6f), dp(4f), dp(6f), dp(4f))
         }
         secondaryContent = LinearLayout(context).apply {
             orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER
@@ -106,14 +104,32 @@ class IslandOverlayView(
 
         setupTouch()
         idle()
+
+        // Gesture exclusion - sistem gesture'larini bu rect'te engelle
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            post { updateGestureExclusion() }
+        }
+    }
+
+    private fun updateGestureExclusion() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            val loc = IntArray(2)
+            container.getLocationInWindow(loc)
+            val rect = Rect(loc[0], loc[1], loc[0] + container.width, loc[1] + container.height)
+            systemGestureExclusionRects = listOf(rect)
+        }
     }
 
     private fun setupTouch() {
         val gd = GestureDetector(context, object : GestureDetector.SimpleOnGestureListener() {
             override fun onSingleTapConfirmed(e: MotionEvent): Boolean {
                 vibrateLight()
-                IslandStateManager.toggleExpanded()
-                if (!cur.expanded) scheduleAutoCollapse()
+                if (cur.mode == IslandMode.NOTIFICATION && !cur.expanded) {
+                    IslandStateManager.dismissNotification()
+                } else {
+                    IslandStateManager.toggleExpanded()
+                    if (!cur.expanded) scheduleAutoCollapse()
+                }
                 return true
             }
             override fun onLongPress(e: MotionEvent) {
@@ -132,26 +148,59 @@ class IslandOverlayView(
             }
         })
 
-        this.setOnTouchListener { _, event ->
+        this.setOnTouchListener { v, event ->
             val loc = IntArray(2); container.getLocationOnScreen(loc)
-            val inMain = event.rawX >= loc[0] && event.rawX <= loc[0] + container.width && event.rawY >= loc[1] && event.rawY <= loc[1] + container.height
-            // Secondary container
-            val sLoc = IntArray(2); secondaryContainer.getLocationOnScreen(sLoc)
-            val inSec = secondaryContainer.visibility == View.VISIBLE && event.rawX >= sLoc[0] && event.rawX <= sLoc[0] + secondaryContainer.width && event.rawY >= sLoc[1] && event.rawY <= sLoc[1] + secondaryContainer.height
+            val inMain = event.rawX >= loc[0] && event.rawX <= loc[0] + container.width &&
+                         event.rawY >= loc[1] && event.rawY <= loc[1] + container.height
 
-            if (inSec && event.action == MotionEvent.ACTION_UP) {
-                // Secondary'ye tikla -> secondary mod'u primary yap
-                vibrateLight()
-                val sec = cur.secondaryMode
-                if (sec != IslandMode.IDLE) IslandStateManager.setMode(sec)
-                true
-            } else if (inMain) {
-                gd.onTouchEvent(event)
-                true
-            } else if (cur.expanded && event.action == MotionEvent.ACTION_UP) {
-                IslandStateManager.toggleExpanded()
-                true
-            } else { false }
+            val sLoc = IntArray(2); secondaryContainer.getLocationOnScreen(sLoc)
+            val inSec = secondaryContainer.visibility == View.VISIBLE &&
+                        event.rawX >= sLoc[0] && event.rawX <= sLoc[0] + secondaryContainer.width &&
+                        event.rawY >= sLoc[1] && event.rawY <= sLoc[1] + secondaryContainer.height
+
+            when {
+                inSec && event.action == MotionEvent.ACTION_UP -> {
+                    vibrateLight()
+                    if (cur.secondaryMode != IslandMode.IDLE) IslandStateManager.setMode(cur.secondaryMode)
+                    true
+                }
+                inMain -> {
+                    // Swipe down -> expand (shade yerine)
+                    when (event.action) {
+                        MotionEvent.ACTION_DOWN -> {
+                            touchStartY = event.rawY; touchStartX = event.rawX
+                            // Parent'in touch'i kapmamasi icin
+                            parent?.requestDisallowInterceptTouchEvent(true)
+                        }
+                        MotionEvent.ACTION_MOVE -> {
+                            val dy = event.rawY - touchStartY
+                            val dx = Math.abs(event.rawX - touchStartX)
+                            if (dy > SWIPE_THRESHOLD && dy > dx && !cur.expanded) {
+                                // Swipe down -> expand
+                                vibrateLight()
+                                IslandStateManager.toggleExpanded()
+                                scheduleAutoCollapse()
+                                touchStartY = event.rawY // Reset
+                                return@setOnTouchListener true
+                            }
+                        }
+                    }
+                    gd.onTouchEvent(event)
+                    true
+                }
+                cur.expanded -> {
+                    if (event.action == MotionEvent.ACTION_UP) IslandStateManager.toggleExpanded()
+                    true
+                }
+                else -> false
+            }
+        }
+    }
+
+    override fun onLayout(changed: Boolean, left: Int, top: Int, right: Int, bottom: Int) {
+        super.onLayout(changed, left, top, right, bottom)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            updateGestureExclusion()
         }
     }
 
@@ -197,56 +246,32 @@ class IslandOverlayView(
         if (s.expanded && !prev.expanded) animTo(true, s)
         else if (!s.expanded && prev.expanded) animTo(false, s)
         if (s.expanded) expanded(s) else compact(s)
+        // Auto dismiss bildirimler
         if (s.mode == IslandMode.NOTIFICATION) autoDismiss()
-        // Expanded iken auto collapse
-        if (s.expanded && s.mode != IslandMode.NOTIFICATION) scheduleAutoCollapse()
+        // Expanded iken auto collapse (bildirim haric, o autoDismiss'le kapanir)
+        if (s.expanded && s.mode != IslandMode.NOTIFICATION && !prev.expanded) scheduleAutoCollapse()
         updateGlow(s.glowColor)
         updateSecondary(s)
+        // Gesture exclusion guncelle
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) post { updateGestureExclusion() }
     }
 
-    // ═══ SECONDARY (SPLIT) ISLAND ═══
-
     private fun updateSecondary(s: IslandState) {
-        if (s.secondaryMode == IslandMode.IDLE || s.expanded) {
-            secondaryContainer.visibility = View.GONE
-            return
-        }
-        secondaryContainer.visibility = View.VISIBLE
-        secondaryContent.removeAllViews()
-
-        // Konumlandir: ana container'in solunda
+        if (s.secondaryMode == IslandMode.IDLE || s.expanded) { secondaryContainer.visibility = View.GONE; return }
+        secondaryContainer.visibility = View.VISIBLE; secondaryContent.removeAllViews()
         val sw = context.resources.displayMetrics.widthPixels
-        val mainW = container.layoutParams.width
-        val secW = dp(40f)
-        val mainLeft = (sw - mainW) / 2
-        val secLeft = mainLeft - secW - dp(SPLIT_GAP)
-
+        val mainW = container.layoutParams.width; val secW = dp(40f)
+        val mainLeft = (sw - mainW) / 2; val secLeft = mainLeft - secW - dp(SPLIT_GAP)
         (secondaryContainer.layoutParams as LayoutParams).apply {
-            gravity = Gravity.TOP
-            marginStart = maxOf(dp(8f), secLeft)
-            topMargin = (container.layoutParams as LayoutParams).topMargin
-            width = secW; height = dp(idleH.toFloat())
+            gravity = Gravity.TOP; marginStart = maxOf(dp(8f), secLeft)
+            topMargin = (container.layoutParams as LayoutParams).topMargin; width = secW; height = dp(idleH.toFloat())
         }
         secondaryContainer.requestLayout()
-
         when (s.secondaryMode) {
-            IslandMode.MUSIC -> {
-                if (s.music.albumArt != null) {
-                    secondaryContent.addView(ImageView(context).apply {
-                        layoutParams = LinearLayout.LayoutParams(dp(18f), dp(18f))
-                        setImageBitmap(s.music.albumArt); scaleType = ImageView.ScaleType.CENTER_CROP
-                    })
-                } else secondaryContent.addView(tv("\uD83C\uDFB5", 10f))
-            }
-            IslandMode.TIMER -> {
-                secondaryContent.addView(tv("\u23F1", 10f, 0xFFFF9500.toInt()))
-            }
-            IslandMode.NAVIGATION -> {
-                secondaryContent.addView(tv("\uD83E\uDDED", 10f, 0xFF007AFF.toInt()))
-            }
-            IslandMode.CHARGING -> {
-                secondaryContent.addView(tv("\u26A1", 10f, 0xFF4CD964.toInt()))
-            }
+            IslandMode.MUSIC -> { if (s.music.albumArt != null) secondaryContent.addView(ImageView(context).apply { layoutParams = LinearLayout.LayoutParams(dp(18f), dp(18f)); setImageBitmap(s.music.albumArt); scaleType = ImageView.ScaleType.CENTER_CROP }) else secondaryContent.addView(tv("\uD83C\uDFB5", 10f)) }
+            IslandMode.TIMER -> secondaryContent.addView(tv("\u23F1", 10f, 0xFFFF9500.toInt()))
+            IslandMode.NAVIGATION -> secondaryContent.addView(tv("\uD83E\uDDED", 10f, 0xFF007AFF.toInt()))
+            IslandMode.CHARGING -> secondaryContent.addView(tv("\u26A1", 10f, 0xFF4CD964.toInt()))
             else -> secondaryContainer.visibility = View.GONE
         }
     }
@@ -255,10 +280,7 @@ class IslandOverlayView(
         if (!glowEnabled || color == 0) { glowView.alpha = 0f; return }
         if (color != currentGlow) {
             currentGlow = color
-            glowView.background = GradientDrawable().apply {
-                shape = GradientDrawable.RECTANGLE; cornerRadius = dp(20f).toFloat()
-                setColor(Color.TRANSPARENT); setStroke(dp(2f), color)
-            }
+            glowView.background = GradientDrawable().apply { shape = GradientDrawable.RECTANGLE; cornerRadius = dp(20f).toFloat(); setColor(Color.TRANSPARENT); setStroke(dp(2f), color) }
             glowView.alpha = 0f; glowView.animate().alpha(0.6f).setDuration(300).start()
         }
         val lp = glowView.layoutParams as LayoutParams; val clp = container.layoutParams
@@ -269,77 +291,47 @@ class IslandOverlayView(
     private fun compact(s: IslandState) {
         compactV.visibility = View.VISIBLE; expandedV.visibility = View.GONE; compactV.removeAllViews()
         when (s.mode) {
-            IslandMode.MUSIC -> cMusic(s.music)
-            IslandMode.CALL -> cCall(s.call)
-            IslandMode.CHARGING -> cCharge(s.charging)
-            IslandMode.TIMER -> cTimer(s.timer)
-            IslandMode.NET_SPEED -> cNet(s.netSpeed)
-            IslandMode.NAVIGATION -> cNav(s.navigation)
-            IslandMode.CAMERA_MIC -> cCamMic(s.indicators)
-            IslandMode.SCREEN_RECORD -> cRecord()
+            IslandMode.MUSIC -> cMusic(s.music); IslandMode.CALL -> cCall(s.call)
+            IslandMode.CHARGING -> cCharge(s.charging); IslandMode.TIMER -> cTimer(s.timer)
+            IslandMode.NET_SPEED -> cNet(s.netSpeed); IslandMode.NAVIGATION -> cNav(s.navigation)
+            IslandMode.CAMERA_MIC -> cCamMic(s.indicators); IslandMode.SCREEN_RECORD -> cRecord()
+            IslandMode.NOTIFICATION -> cNotif(s.notification)
             else -> idle()
         }
     }
 
     private fun idle() {
         compactV.removeAllViews(); compactV.gravity = Gravity.CENTER
-        repeat(2) { i ->
-            compactV.addView(View(context).apply {
-                layoutParams = LinearLayout.LayoutParams(dp(9f), dp(9f)).apply { if (i > 0) marginStart = dp(4f) }
-                background = GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(0xFF1A1A1A.toInt()); setStroke(1, 0xFF333333.toInt()) }
-            })
-        }
+        repeat(2) { i -> compactV.addView(View(context).apply { layoutParams = LinearLayout.LayoutParams(dp(9f), dp(9f)).apply { if (i > 0) marginStart = dp(4f) }; background = GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(0xFF1A1A1A.toInt()); setStroke(1, 0xFF333333.toInt()) } }) }
+    }
+
+    // Compact notification (expanded olmadan gosterim)
+    private fun cNotif(n: NotificationInfo?) {
+        if (n == null) { idle(); return }
+        compactV.gravity = Gravity.CENTER_VERTICAL
+        if (n.appIcon != null) compactV.addView(ImageView(context).apply { layoutParams = LinearLayout.LayoutParams(dp(18f), dp(18f)).apply { marginEnd = dp(4f) }; setImageBitmap(n.appIcon); scaleType = ImageView.ScaleType.CENTER_CROP })
+        else compactV.addView(View(context).apply { layoutParams = LinearLayout.LayoutParams(dp(18f), dp(18f)).apply { marginEnd = dp(4f) }; background = GradientDrawable().apply { cornerRadius = dp(4f).toFloat(); setColor(n.color) } })
+        compactV.addView(tv(n.title, 10f, Color.WHITE, Typeface.create(Typeface.DEFAULT, Typeface.BOLD), 1).apply {
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+        })
+        compactV.addView(tv("\u2715", 10f, 0xFF666666.toInt()).apply { setPadding(dp(4f), 0, 0, 0); setOnClickListener { IslandStateManager.dismissNotification() } })
     }
 
     private fun cMusic(m: MusicState) {
         compactV.gravity = Gravity.CENTER_VERTICAL
-        if (m.albumArt != null) compactV.addView(ImageView(context).apply {
-            layoutParams = LinearLayout.LayoutParams(dp(20f), dp(20f)); setImageBitmap(m.albumArt); scaleType = ImageView.ScaleType.CENTER_CROP
-        }) else compactV.addView(tv("\uD83C\uDFB5", 10f))
+        if (m.albumArt != null) compactV.addView(ImageView(context).apply { layoutParams = LinearLayout.LayoutParams(dp(20f), dp(20f)); setImageBitmap(m.albumArt); scaleType = ImageView.ScaleType.CENTER_CROP }) else compactV.addView(tv("\uD83C\uDFB5", 10f))
         compactV.addView(spacer())
         val bc = LinearLayout(context).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL; layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, dp(16f)) }
-        repeat(5) { i ->
-            bc.addView(View(context).apply {
-                val h = if (m.isPlaying) (3 + (Math.random() * 12)).toInt() else 3
-                layoutParams = LinearLayout.LayoutParams(dp(2.5f), dp(h.toFloat())).apply { if (i > 0) marginStart = dp(1.5f) }
-                background = GradientDrawable().apply { setColor(0xFFFF6B35.toInt()); cornerRadius = dp(1.5f).toFloat() }
-            })
-        }
+        repeat(5) { i -> bc.addView(View(context).apply { val h = if (m.isPlaying) (3 + (Math.random() * 12)).toInt() else 3; layoutParams = LinearLayout.LayoutParams(dp(2.5f), dp(h.toFloat())).apply { if (i > 0) marginStart = dp(1.5f) }; background = GradientDrawable().apply { setColor(0xFFFF6B35.toInt()); cornerRadius = dp(1.5f).toFloat() } }) }
         compactV.addView(bc)
     }
-
-    private fun cCall(c: CallState) {
-        compactV.gravity = Gravity.CENTER_VERTICAL
-        compactV.addView(dot(0xFF4CD964.toInt(), 7)); compactV.addView(spacer())
-        compactV.addView(tv(fmtD(c.durationSeconds), 12f, 0xFF4CD964.toInt(), Typeface.MONOSPACE))
-    }
-    private fun cCharge(ch: ChargingState) {
-        compactV.gravity = Gravity.CENTER_VERTICAL; compactV.addView(tv("\u26A1", 10f)); compactV.addView(spacer())
-        compactV.addView(tv("${ch.level}%", 12f, 0xFF4CD964.toInt(), Typeface.create(Typeface.DEFAULT, Typeface.BOLD)))
-    }
-    private fun cTimer(t: TimerState) {
-        compactV.gravity = Gravity.CENTER_VERTICAL; compactV.addView(tv("\u23F1", 10f)); compactV.addView(spacer())
-        val display = if (t.isStopwatch) fmtMs(t.elapsedMs) else fmtMs(maxOf(0, t.targetMs - t.elapsedMs))
-        compactV.addView(tv(display, 12f, 0xFFFF9500.toInt(), Typeface.MONOSPACE))
-    }
-    private fun cNet(n: NetSpeedState) {
-        compactV.gravity = Gravity.CENTER_VERTICAL
-        compactV.addView(tv("\u2193", 10f, 0xFF4CD964.toInt())); compactV.addView(tv(n.downloadSpeed, 9f, 0xFF4CD964.toInt()))
-        compactV.addView(spacer()); compactV.addView(tv("\u2191", 10f, 0xFFFF6B35.toInt())); compactV.addView(tv(n.uploadSpeed, 9f, 0xFFFF6B35.toInt()))
-    }
-    private fun cNav(nav: NavigationState) {
-        compactV.gravity = Gravity.CENTER_VERTICAL; compactV.addView(tv("\uD83E\uDDED", 10f)); compactV.addView(spacer())
-        compactV.addView(tv(nav.distance, 11f, 0xFF007AFF.toInt()))
-    }
-    private fun cCamMic(ind: SystemIndicators) {
-        compactV.gravity = Gravity.CENTER_VERTICAL
-        if (ind.cameraInUse) compactV.addView(dot(0xFF4CD964.toInt(), 7))
-        if (ind.micInUse) compactV.addView(dot(0xFFFF9500.toInt(), 7))
-    }
-    private fun cRecord() {
-        compactV.gravity = Gravity.CENTER_VERTICAL; compactV.addView(dot(0xFFFF3B30.toInt(), 8)); compactV.addView(spacer())
-        compactV.addView(tv("REC", 10f, 0xFFFF3B30.toInt(), Typeface.create(Typeface.DEFAULT, Typeface.BOLD)))
-    }
+    private fun cCall(c: CallState) { compactV.gravity = Gravity.CENTER_VERTICAL; compactV.addView(dot(0xFF4CD964.toInt(), 7)); compactV.addView(spacer()); compactV.addView(tv(fmtD(c.durationSeconds), 12f, 0xFF4CD964.toInt(), Typeface.MONOSPACE)) }
+    private fun cCharge(ch: ChargingState) { compactV.gravity = Gravity.CENTER_VERTICAL; compactV.addView(tv("\u26A1", 10f)); compactV.addView(spacer()); compactV.addView(tv("${ch.level}%", 12f, 0xFF4CD964.toInt(), Typeface.create(Typeface.DEFAULT, Typeface.BOLD))) }
+    private fun cTimer(t: TimerState) { compactV.gravity = Gravity.CENTER_VERTICAL; compactV.addView(tv("\u23F1", 10f)); compactV.addView(spacer()); val display = if (t.isStopwatch) fmtMs(t.elapsedMs) else fmtMs(maxOf(0, t.targetMs - t.elapsedMs)); compactV.addView(tv(display, 12f, 0xFFFF9500.toInt(), Typeface.MONOSPACE)) }
+    private fun cNet(n: NetSpeedState) { compactV.gravity = Gravity.CENTER_VERTICAL; compactV.addView(tv("\u2193", 10f, 0xFF4CD964.toInt())); compactV.addView(tv(n.downloadSpeed, 9f, 0xFF4CD964.toInt())); compactV.addView(spacer()); compactV.addView(tv("\u2191", 10f, 0xFFFF6B35.toInt())); compactV.addView(tv(n.uploadSpeed, 9f, 0xFFFF6B35.toInt())) }
+    private fun cNav(nav: NavigationState) { compactV.gravity = Gravity.CENTER_VERTICAL; compactV.addView(tv("\uD83E\uDDED", 10f)); compactV.addView(spacer()); compactV.addView(tv(nav.distance, 11f, 0xFF007AFF.toInt())) }
+    private fun cCamMic(ind: SystemIndicators) { compactV.gravity = Gravity.CENTER_VERTICAL; if (ind.cameraInUse) compactV.addView(dot(0xFF4CD964.toInt(), 7)); if (ind.micInUse) compactV.addView(dot(0xFFFF9500.toInt(), 7)) }
+    private fun cRecord() { compactV.gravity = Gravity.CENTER_VERTICAL; compactV.addView(dot(0xFFFF3B30.toInt(), 8)); compactV.addView(spacer()); compactV.addView(tv("REC", 10f, 0xFFFF3B30.toInt(), Typeface.create(Typeface.DEFAULT, Typeface.BOLD))) }
 
     // ═══ EXPANDED ═══
     private fun expanded(s: IslandState) {
@@ -357,25 +349,15 @@ class IslandOverlayView(
     private fun eMusic(m: MusicState) {
         val lay = vLay()
         val top = hLay(Gravity.CENTER_VERTICAL)
-        top.addView(ImageView(context).apply {
-            layoutParams = LinearLayout.LayoutParams(dp(38f), dp(38f)).apply { marginEnd = dp(8f) }
-            scaleType = ImageView.ScaleType.CENTER_CROP
-            if (m.albumArt != null) setImageBitmap(m.albumArt) else setBackgroundColor(0xFF333333.toInt())
-            setOnClickListener { try { context.packageManager.getLaunchIntentForPackage(m.packageName)?.let { context.startActivity(it.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) } } catch (_: Exception) {} }
-        })
+        top.addView(ImageView(context).apply { layoutParams = LinearLayout.LayoutParams(dp(38f), dp(38f)).apply { marginEnd = dp(8f) }; scaleType = ImageView.ScaleType.CENTER_CROP; if (m.albumArt != null) setImageBitmap(m.albumArt) else setBackgroundColor(0xFF333333.toInt()); setOnClickListener { try { context.packageManager.getLaunchIntentForPackage(m.packageName)?.let { context.startActivity(it.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) } } catch (_: Exception) {} } })
         val tc = LinearLayout(context).apply { orientation = LinearLayout.VERTICAL; layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f) }
         tc.addView(tv(m.title.ifEmpty { "Bilinmeyen" }, 12f, Color.WHITE, Typeface.create(Typeface.DEFAULT, Typeface.BOLD), 1))
         tc.addView(tv(m.artist.ifEmpty { "Bilinmeyen" }, 10f, 0xFF999999.toInt(), null, 1))
         top.addView(tc); lay.addView(top)
-        lay.addView(ProgressBar(context, null, android.R.attr.progressBarStyleHorizontal).apply {
-            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(2f)).apply { topMargin = dp(6f) }
-            max = if (m.duration > 0) (m.duration / 1000).toInt() else 100; progress = (m.position / 1000).toInt()
-        })
+        lay.addView(ProgressBar(context, null, android.R.attr.progressBarStyleHorizontal).apply { layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(2f)).apply { topMargin = dp(6f) }; max = if (m.duration > 0) (m.duration / 1000).toInt() else 100; progress = (m.position / 1000).toInt() })
         val ctrls = hLay(Gravity.CENTER).apply { (layoutParams as LinearLayout.LayoutParams).topMargin = dp(4f) }
         ctrls.addView(ctrlBtn("\u23EE", false) { mt?.skipPrev() })
-        ctrls.addView(ctrlBtn(if (m.isPlaying) "\u23F8" else "\u25B6\uFE0F", true) { mt?.togglePlayPause() }.apply {
-            (layoutParams as LinearLayout.LayoutParams).marginStart = dp(14f); (layoutParams as LinearLayout.LayoutParams).marginEnd = dp(14f)
-        })
+        ctrls.addView(ctrlBtn(if (m.isPlaying) "\u23F8" else "\u25B6\uFE0F", true) { mt?.togglePlayPause() }.apply { (layoutParams as LinearLayout.LayoutParams).marginStart = dp(14f); (layoutParams as LinearLayout.LayoutParams).marginEnd = dp(14f) })
         ctrls.addView(ctrlBtn("\u23ED", false) { mt?.skipNext() })
         lay.addView(ctrls); expandedV.addView(lay)
     }
@@ -386,23 +368,12 @@ class IslandOverlayView(
         lay.addView(tv(c.callerName.ifEmpty { c.callerNumber.ifEmpty { "Bilinmeyen" } }, 13f, Color.WHITE, Typeface.create(Typeface.DEFAULT, Typeface.BOLD)).apply { gravity = Gravity.CENTER; (layoutParams as? LinearLayout.LayoutParams)?.topMargin = dp(3f) })
         lay.addView(tv(if (c.isActive) fmtD(c.durationSeconds) else if (c.isIncoming) "Gelen Arama" else "Ariyor...", 11f, if (c.isActive) 0xFF4CD964.toInt() else 0xFF999999.toInt(), Typeface.MONOSPACE).apply { gravity = Gravity.CENTER })
         val btns = hLay(Gravity.CENTER).apply { (layoutParams as LinearLayout.LayoutParams).topMargin = dp(6f) }
-        if (c.isIncoming) {
-            btns.addView(actionBtn("\u2714", 0xFF4CD964.toInt()) { try { context.startActivity(context.packageManager.getLaunchIntentForPackage("com.android.dialer")?.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) } catch (_: Exception) {} })
-            btns.addView(View(context).apply { layoutParams = LinearLayout.LayoutParams(dp(20f), 1) })
-            btns.addView(actionBtn("\u2716", 0xFFFF3B30.toInt()) { try { (context.getSystemService(Context.TELECOM_SERVICE) as TelecomManager).endCall() } catch (_: Exception) {} })
-        } else if (c.isActive) { btns.addView(actionBtn("\u2716 Kapat", 0xFFFF3B30.toInt()) { try { (context.getSystemService(Context.TELECOM_SERVICE) as TelecomManager).endCall() } catch (_: Exception) {} }) }
+        if (c.isIncoming) { btns.addView(actionBtn("\u2714", 0xFF4CD964.toInt()) { try { context.startActivity(context.packageManager.getLaunchIntentForPackage("com.android.dialer")?.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) } catch (_: Exception) {} }); btns.addView(View(context).apply { layoutParams = LinearLayout.LayoutParams(dp(20f), 1) }); btns.addView(actionBtn("\u2716", 0xFFFF3B30.toInt()) { try { (context.getSystemService(Context.TELECOM_SERVICE) as TelecomManager).endCall() } catch (_: Exception) {} }) }
+        else if (c.isActive) { btns.addView(actionBtn("\u2716 Kapat", 0xFFFF3B30.toInt()) { try { (context.getSystemService(Context.TELECOM_SERVICE) as TelecomManager).endCall() } catch (_: Exception) {} }) }
         lay.addView(btns); expandedV.addView(lay)
     }
 
-    private fun eCharge(ch: ChargingState) {
-        val lay = vLay(Gravity.CENTER)
-        val r = hLay(Gravity.CENTER); r.addView(tv("\u26A1", 20f))
-        r.addView(tv("${ch.level}%", 24f, 0xFF4CD964.toInt(), Typeface.create(Typeface.DEFAULT, Typeface.BOLD)).apply { setPadding(dp(4f), 0, 0, 0) })
-        lay.addView(r)
-        lay.addView(ProgressBar(context, null, android.R.attr.progressBarStyleHorizontal).apply { layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(4f)).apply { topMargin = dp(6f) }; max = 100; progress = ch.level })
-        lay.addView(tv(if (ch.isFast) "Hizli sarj" else "Sarj ediliyor", 10f, 0xFF999999.toInt()).apply { gravity = Gravity.CENTER })
-        expandedV.addView(lay)
-    }
+    private fun eCharge(ch: ChargingState) { val lay = vLay(Gravity.CENTER); val r = hLay(Gravity.CENTER); r.addView(tv("\u26A1", 20f)); r.addView(tv("${ch.level}%", 24f, 0xFF4CD964.toInt(), Typeface.create(Typeface.DEFAULT, Typeface.BOLD)).apply { setPadding(dp(4f), 0, 0, 0) }); lay.addView(r); lay.addView(ProgressBar(context, null, android.R.attr.progressBarStyleHorizontal).apply { layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(4f)).apply { topMargin = dp(6f) }; max = 100; progress = ch.level }); lay.addView(tv(if (ch.isFast) "Hizli sarj" else "Sarj ediliyor", 10f, 0xFF999999.toInt()).apply { gravity = Gravity.CENTER }); expandedV.addView(lay) }
 
     private fun eNotif(n: NotificationInfo?) {
         if (n == null) return
@@ -412,60 +383,17 @@ class IslandOverlayView(
         if (n.appIcon != null) lay.addView(ImageView(context).apply { layoutParams = LinearLayout.LayoutParams(dp(28f), dp(28f)).apply { marginEnd = dp(6f) }; setImageBitmap(n.appIcon) })
         else lay.addView(View(context).apply { layoutParams = LinearLayout.LayoutParams(dp(28f), dp(28f)).apply { marginEnd = dp(6f) }; background = GradientDrawable().apply { cornerRadius = dp(6f).toFloat(); setColor(n.color) } })
         val tc = LinearLayout(context).apply { orientation = LinearLayout.VERTICAL; layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f) }
-        tc.addView(tv(n.appName.uppercase(), 7f, 0xFF888888.toInt()))
-        tc.addView(tv(n.title, 11f, Color.WHITE, Typeface.create(Typeface.DEFAULT, Typeface.BOLD), 1))
-        tc.addView(tv(n.body, 9f, 0xFF999999.toInt(), null, 1))
+        tc.addView(tv(n.appName.uppercase(), 7f, 0xFF888888.toInt())); tc.addView(tv(n.title, 11f, Color.WHITE, Typeface.create(Typeface.DEFAULT, Typeface.BOLD), 1)); tc.addView(tv(n.body, 9f, 0xFF999999.toInt(), null, 1))
         lay.addView(tc); lay.addView(tv("\u2715", 12f, 0xFF666666.toInt()).apply { setPadding(dp(6f), 0, 0, 0); setOnClickListener { IslandStateManager.dismissNotification() } })
         expandedV.addView(lay)
     }
 
-    private fun eTimer(t: TimerState) {
-        val lay = vLay(Gravity.CENTER)
-        lay.addView(tv(if (t.isStopwatch) "Kronometre" else "Zamanlayici", 10f, 0xFF999999.toInt()).apply { gravity = Gravity.CENTER })
-        val display = if (t.isStopwatch) fmtMsFull(t.elapsedMs) else fmtMsFull(maxOf(0, t.targetMs - t.elapsedMs))
-        lay.addView(tv(display, 22f, 0xFFFF9500.toInt(), Typeface.MONOSPACE).apply { gravity = Gravity.CENTER })
-        lay.addView(actionBtn("\u23F9 Durdur", 0xFFFF3B30.toInt()) { TimerManager.stop() }.apply { (layoutParams as? LinearLayout.LayoutParams)?.topMargin = dp(6f) })
-        expandedV.addView(lay)
-    }
-
-    private fun eNet(n: NetSpeedState) {
-        val lay = vLay(Gravity.CENTER)
-        lay.addView(tv("Internet Hizi", 10f, 0xFF999999.toInt()).apply { gravity = Gravity.CENTER })
-        val dl = hLay(Gravity.CENTER).apply { (layoutParams as LinearLayout.LayoutParams).topMargin = dp(4f) }
-        dl.addView(tv("\u2193 ", 12f, 0xFF4CD964.toInt())); dl.addView(tv(n.downloadSpeed, 15f, 0xFF4CD964.toInt(), Typeface.create(Typeface.DEFAULT, Typeface.BOLD)))
-        lay.addView(dl)
-        val ul = hLay(Gravity.CENTER); ul.addView(tv("\u2191 ", 12f, 0xFFFF6B35.toInt())); ul.addView(tv(n.uploadSpeed, 15f, 0xFFFF6B35.toInt(), Typeface.create(Typeface.DEFAULT, Typeface.BOLD)))
-        lay.addView(ul); expandedV.addView(lay)
-    }
-
-    private fun eNav(nav: NavigationState) {
-        val lay = vLay(Gravity.CENTER)
-        lay.addView(tv(nav.instruction, 12f, Color.WHITE, Typeface.create(Typeface.DEFAULT, Typeface.BOLD), 2).apply { gravity = Gravity.CENTER })
-        val row = hLay(Gravity.CENTER).apply { (layoutParams as LinearLayout.LayoutParams).topMargin = dp(3f) }
-        row.addView(tv(nav.distance, 14f, 0xFF007AFF.toInt(), Typeface.create(Typeface.DEFAULT, Typeface.BOLD)))
-        row.addView(tv("  \u2022  ", 12f, 0xFF666666.toInt()))
-        row.addView(tv(nav.eta, 14f, 0xFF4CD964.toInt()))
-        lay.addView(row); expandedV.addView(lay)
-    }
-
-    private fun eCamMic(ind: SystemIndicators) {
-        val lay = vLay(Gravity.CENTER)
-        if (ind.cameraInUse) { val r = hLay(Gravity.CENTER); r.addView(dot(0xFF4CD964.toInt(), 10)); r.addView(tv("  Kamera", 12f, 0xFF4CD964.toInt())); lay.addView(r) }
-        if (ind.micInUse) { val r = hLay(Gravity.CENTER); r.addView(dot(0xFFFF9500.toInt(), 10)); r.addView(tv("  Mikrofon", 12f, 0xFFFF9500.toInt())); lay.addView(r) }
-        expandedV.addView(lay)
-    }
-
-    private fun eRecord() {
-        val lay = vLay(Gravity.CENTER); val r = hLay(Gravity.CENTER); r.addView(dot(0xFFFF3B30.toInt(), 10))
-        r.addView(tv("  Ekran Kaydediliyor", 12f, 0xFFFF3B30.toInt(), Typeface.create(Typeface.DEFAULT, Typeface.BOLD))); lay.addView(r); expandedV.addView(lay)
-    }
-
-    private fun eBt(ind: SystemIndicators) {
-        val lay = vLay(Gravity.CENTER)
-        lay.addView(tv(ind.bluetoothDevice, 14f, 0xFF007AFF.toInt(), Typeface.create(Typeface.DEFAULT, Typeface.BOLD)).apply { gravity = Gravity.CENTER })
-        lay.addView(tv(if (ind.bluetoothConnected) "Bagli" else "Bagli degil", 10f, if (ind.bluetoothConnected) 0xFF4CD964.toInt() else 0xFF999999.toInt()).apply { gravity = Gravity.CENTER })
-        expandedV.addView(lay)
-    }
+    private fun eTimer(t: TimerState) { val lay = vLay(Gravity.CENTER); lay.addView(tv(if (t.isStopwatch) "Kronometre" else "Zamanlayici", 10f, 0xFF999999.toInt()).apply { gravity = Gravity.CENTER }); val display = if (t.isStopwatch) fmtMsFull(t.elapsedMs) else fmtMsFull(maxOf(0, t.targetMs - t.elapsedMs)); lay.addView(tv(display, 22f, 0xFFFF9500.toInt(), Typeface.MONOSPACE).apply { gravity = Gravity.CENTER }); lay.addView(actionBtn("\u23F9 Durdur", 0xFFFF3B30.toInt()) { TimerManager.stop() }.apply { (layoutParams as? LinearLayout.LayoutParams)?.topMargin = dp(6f) }); expandedV.addView(lay) }
+    private fun eNet(n: NetSpeedState) { val lay = vLay(Gravity.CENTER); lay.addView(tv("Internet Hizi", 10f, 0xFF999999.toInt()).apply { gravity = Gravity.CENTER }); val dl = hLay(Gravity.CENTER).apply { (layoutParams as LinearLayout.LayoutParams).topMargin = dp(4f) }; dl.addView(tv("\u2193 ", 12f, 0xFF4CD964.toInt())); dl.addView(tv(n.downloadSpeed, 15f, 0xFF4CD964.toInt(), Typeface.create(Typeface.DEFAULT, Typeface.BOLD))); lay.addView(dl); val ul = hLay(Gravity.CENTER); ul.addView(tv("\u2191 ", 12f, 0xFFFF6B35.toInt())); ul.addView(tv(n.uploadSpeed, 15f, 0xFFFF6B35.toInt(), Typeface.create(Typeface.DEFAULT, Typeface.BOLD))); lay.addView(ul); expandedV.addView(lay) }
+    private fun eNav(nav: NavigationState) { val lay = vLay(Gravity.CENTER); lay.addView(tv(nav.instruction, 12f, Color.WHITE, Typeface.create(Typeface.DEFAULT, Typeface.BOLD), 2).apply { gravity = Gravity.CENTER }); val row = hLay(Gravity.CENTER).apply { (layoutParams as LinearLayout.LayoutParams).topMargin = dp(3f) }; row.addView(tv(nav.distance, 14f, 0xFF007AFF.toInt(), Typeface.create(Typeface.DEFAULT, Typeface.BOLD))); row.addView(tv("  \u2022  ", 12f, 0xFF666666.toInt())); row.addView(tv(nav.eta, 14f, 0xFF4CD964.toInt())); lay.addView(row); expandedV.addView(lay) }
+    private fun eCamMic(ind: SystemIndicators) { val lay = vLay(Gravity.CENTER); if (ind.cameraInUse) { val r = hLay(Gravity.CENTER); r.addView(dot(0xFF4CD964.toInt(), 10)); r.addView(tv("  Kamera", 12f, 0xFF4CD964.toInt())); lay.addView(r) }; if (ind.micInUse) { val r = hLay(Gravity.CENTER); r.addView(dot(0xFFFF9500.toInt(), 10)); r.addView(tv("  Mikrofon", 12f, 0xFFFF9500.toInt())); lay.addView(r) }; expandedV.addView(lay) }
+    private fun eRecord() { val lay = vLay(Gravity.CENTER); val r = hLay(Gravity.CENTER); r.addView(dot(0xFFFF3B30.toInt(), 10)); r.addView(tv("  Ekran Kaydediliyor", 12f, 0xFFFF3B30.toInt(), Typeface.create(Typeface.DEFAULT, Typeface.BOLD))); lay.addView(r); expandedV.addView(lay) }
+    private fun eBt(ind: SystemIndicators) { val lay = vLay(Gravity.CENTER); lay.addView(tv(ind.bluetoothDevice, 14f, 0xFF007AFF.toInt(), Typeface.create(Typeface.DEFAULT, Typeface.BOLD)).apply { gravity = Gravity.CENTER }); lay.addView(tv(if (ind.bluetoothConnected) "Bagli" else "Bagli degil", 10f, if (ind.bluetoothConnected) 0xFF4CD964.toInt() else 0xFF999999.toInt()).apply { gravity = Gravity.CENTER }); expandedV.addView(lay) }
 
     // ═══ ANIMATION ═══
     private fun animTo(expand: Boolean, s: IslandState) {
@@ -487,10 +415,7 @@ class IslandOverlayView(
 
     private fun autoDismiss() {
         dismissR?.let { handler.removeCallbacks(it) }
-        dismissR = Runnable {
-            IslandStateManager.dismissNotification()
-            if (cur.expanded) IslandStateManager.toggleExpanded()
-        }
+        dismissR = Runnable { IslandStateManager.dismissNotification(); if (cur.expanded) IslandStateManager.toggleExpanded() }
         handler.postDelayed(dismissR!!, NOTIF_DISMISS_MS)
     }
 
