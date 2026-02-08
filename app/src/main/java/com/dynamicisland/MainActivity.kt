@@ -47,25 +47,25 @@ class MainActivity : AppCompatActivity() {
         root.addView(headerCard())
         root.addView(spc(16))
 
-        // Permissions
+        // ═══ IZINLER ═══
         root.addView(sectionTitle("Izinler"))
         val permCard = cardLayout()
-        s1 = permRow(permCard, "Overlay", true)
+        s1 = permRow(permCard, "Overlay")
         permCard.addView(permBtn("Overlay Izni Ver") {
             startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:$packageName")))
         })
         permCard.addView(divider())
-        s2 = permRow(permCard, "Bildirim Erisimi", true)
+        s2 = permRow(permCard, "Bildirim Erisimi")
         permCard.addView(permBtn("Bildirim Erisimi Ver") {
             startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
         })
         permCard.addView(divider())
-        s3 = permRow(permCard, "Telefon", true)
+        s3 = permRow(permCard, "Telefon")
         permCard.addView(permBtn("Telefon Izni Ver") {
             phonePL.launch(Manifest.permission.READ_PHONE_STATE)
         })
         permCard.addView(divider())
-        s4 = permRow(permCard, "Bildirim", true)
+        s4 = permRow(permCard, "Bildirim")
         if (Build.VERSION.SDK_INT >= 33) {
             permCard.addView(permBtn("Bildirim Izni Ver") {
                 notifPL.launch(Manifest.permission.POST_NOTIFICATIONS)
@@ -80,7 +80,7 @@ class MainActivity : AppCompatActivity() {
         root.addView(permCard)
         root.addView(spc(16))
 
-        // Enable switch
+        // ═══ SERVIS ═══
         val swCard = cardLayout()
         sw = Switch(this).apply {
             text = "Dynamic Island"
@@ -107,12 +107,12 @@ class MainActivity : AppCompatActivity() {
         root.addView(swCard)
         root.addView(spc(16))
 
-        // Position & Size
+        // ═══ KONUM VE BOYUT ═══
         root.addView(sectionTitle("Konum ve Boyut"))
         val posCard = cardLayout()
         yLabel = sliderLabel(posCard, "Dikey Konum", PrefsManager.getYOffset(this), "px")
         posCard.addView(makeSeek(300, PrefsManager.getYOffset(this)) { v ->
-            yLabel.text = "Dikey Konum: ${v} px"
+            yLabel.text = "Dikey Konum: $v px"
             PrefsManager.setYOffset(this, v)
             OverlayService.refresh(this)
         })
@@ -120,7 +120,7 @@ class MainActivity : AppCompatActivity() {
         wLabel = sliderLabel(posCard, "Genislik", PrefsManager.getIdleWidth(this), "dp")
         posCard.addView(makeSeek(200, PrefsManager.getIdleWidth(this)) { v ->
             val w = maxOf(v, 60)
-            wLabel.text = "Genislik: ${w} dp"
+            wLabel.text = "Genislik: $w dp"
             PrefsManager.setIdleWidth(this, w)
             OverlayService.refresh(this)
         })
@@ -128,31 +128,60 @@ class MainActivity : AppCompatActivity() {
         hLabel = sliderLabel(posCard, "Yukseklik", PrefsManager.getIdleHeight(this), "dp")
         posCard.addView(makeSeek(80, PrefsManager.getIdleHeight(this)) { v ->
             val h = maxOf(v, 20)
-            hLabel.text = "Yukseklik: ${h} dp"
+            hLabel.text = "Yukseklik: $h dp"
             PrefsManager.setIdleHeight(this, h)
             OverlayService.refresh(this)
         })
         root.addView(posCard)
         root.addView(spc(16))
 
-        // Visual settings
+        // ═══ OZELLIKLER ═══
+        root.addView(sectionTitle("Ozellikler"))
+        val ftCard = cardLayout()
+        ftCard.addView(featureSwitch("Muzik Kontrolu", PrefsManager.getMusicEnabled(this)) {
+            PrefsManager.setMusicEnabled(this, it); OverlayService.refresh(this)
+        })
+        ftCard.addView(divider())
+        ftCard.addView(featureSwitch("Arama Gostergesi", PrefsManager.getCallEnabled(this)) {
+            PrefsManager.setCallEnabled(this, it); OverlayService.refresh(this)
+        })
+        ftCard.addView(divider())
+        ftCard.addView(featureSwitch("Bildirimler", PrefsManager.getNotifEnabled(this)) {
+            PrefsManager.setNotifEnabled(this, it); OverlayService.refresh(this)
+        })
+        ftCard.addView(divider())
+        ftCard.addView(featureSwitch("Sarj Gostergesi", PrefsManager.getChargingEnabled(this)) {
+            PrefsManager.setChargingEnabled(this, it); OverlayService.refresh(this)
+        })
+        ftCard.addView(divider())
+        ftCard.addView(featureSwitch("Zamanlayici", PrefsManager.getTimerEnabled(this)) {
+            PrefsManager.setTimerEnabled(this, it); OverlayService.refresh(this)
+        })
+        ftCard.addView(divider())
+        ftCard.addView(featureSwitch("Internet Hizi", PrefsManager.getNetSpeedEnabled(this)) {
+            PrefsManager.setNetSpeedEnabled(this, it); OverlayService.refresh(this)
+        })
+        ftCard.addView(divider())
+        ftCard.addView(featureSwitch("Bluetooth", PrefsManager.getBtEnabled(this)) {
+            PrefsManager.setBtEnabled(this, it); OverlayService.refresh(this)
+        })
+        root.addView(ftCard)
+        root.addView(spc(16))
+
+        // ═══ GORUNUM ═══
         root.addView(sectionTitle("Gorunum"))
         val visCard = cardLayout()
-        val glowSw = Switch(this).apply {
-            text = "Glow Efekti"
-            textSize = 15f
-            isChecked = PrefsManager.getGlowEnabled(this@MainActivity)
-            setPadding(dp(4), dp(8), dp(4), dp(8))
-            setOnCheckedChangeListener { _, on ->
-                PrefsManager.setGlowEnabled(this@MainActivity, on)
-                OverlayService.refresh(this@MainActivity)
-            }
-        }
-        visCard.addView(glowSw)
+        visCard.addView(featureSwitch("Glow Efekti", PrefsManager.getGlowEnabled(this)) {
+            PrefsManager.setGlowEnabled(this, it); OverlayService.refresh(this)
+        })
+        visCard.addView(divider())
+        visCard.addView(featureSwitch("Bildirimleri Status Bar'dan Gizle", PrefsManager.getHideStatusNotif(this)) {
+            PrefsManager.setHideStatusNotif(this, it)
+        })
         root.addView(visCard)
         root.addView(spc(16))
 
-        // Timer tools
+        // ═══ ARACLAR ═══
         root.addView(sectionTitle("Araclar"))
         val toolCard = cardLayout()
         toolCard.addView(toolBtn("Kronometre Baslat") { TimerManager.startStopwatch() })
@@ -163,12 +192,7 @@ class MainActivity : AppCompatActivity() {
         toolCard.addView(spc(8))
         toolCard.addView(toolBtn("Durdur") { TimerManager.stop() })
         root.addView(toolCard)
-        root.addView(spc(16))
-
-        // Info
-        root.addView(tv("Spotify/YouTube Music acin, arama gelin, bildirim gelin, sarj takin veya kronometre baslatip Dynamic Island'i gorun.", 12f, false, 0xFF999999.toInt()).apply {
-            setPadding(dp(8), 0, dp(8), dp(24))
-        })
+        root.addView(spc(24))
 
         sv.addView(root)
         setContentView(sv)
@@ -192,18 +216,23 @@ class MainActivity : AppCompatActivity() {
             }
             addView(TextView(this@MainActivity).apply {
                 text = "Dynamic Island"
-                textSize = 24f
-                setTextColor(Color.WHITE)
+                textSize = 24f; setTextColor(Color.WHITE)
                 typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
                 gravity = Gravity.CENTER
             })
             addView(TextView(this@MainActivity).apply {
-                text = "Muzik \u2022 Arama \u2022 Bildirim \u2022 Sarj\nZamanlayici \u2022 Hiz \u2022 Bluetooth \u2022 Glow"
-                textSize = 12f
-                setTextColor(0xFF888888.toInt())
-                gravity = Gravity.CENTER
+                text = "Muzik \u2022 Arama \u2022 Bildirim \u2022 Sarj \u2022 Zamanlayici"
+                textSize = 12f; setTextColor(0xFF888888.toInt()); gravity = Gravity.CENTER
                 setPadding(0, dp(4), 0, 0)
             })
+        }
+    }
+
+    private fun featureSwitch(label: String, default: Boolean, onChange: (Boolean) -> Unit): Switch {
+        return Switch(this).apply {
+            text = label; textSize = 14f; isChecked = default
+            setPadding(dp(4), dp(8), dp(4), dp(8))
+            setOnCheckedChangeListener { _, on -> onChange(on) }
         }
     }
 
@@ -212,8 +241,7 @@ class MainActivity : AppCompatActivity() {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(16), dp(12), dp(16), dp(12))
             background = GradientDrawable().apply {
-                cornerRadius = dp(12).toFloat()
-                setColor(Color.WHITE)
+                cornerRadius = dp(12).toFloat(); setColor(Color.WHITE)
             }
             elevation = dp(2).toFloat()
         }
@@ -221,34 +249,29 @@ class MainActivity : AppCompatActivity() {
 
     private fun sectionTitle(t: String): TextView {
         return TextView(this).apply {
-            text = t; textSize = 14f
-            setTextColor(0xFF666666.toInt())
+            text = t; textSize = 14f; setTextColor(0xFF666666.toInt())
             typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
             setPadding(dp(8), 0, 0, dp(8))
         }
     }
 
-    private fun permRow(parent: LinearLayout, name: String, addToParent: Boolean): TextView {
+    private fun permRow(parent: LinearLayout, name: String): TextView {
         val tv = TextView(this).apply {
-            textSize = 14f
-            setPadding(dp(4), dp(6), dp(4), dp(2))
+            textSize = 14f; setPadding(dp(4), dp(6), dp(4), dp(2))
         }
-        if (addToParent) parent.addView(tv)
+        parent.addView(tv)
         return tv
     }
 
     private fun permBtn(t: String, click: () -> Unit): Button {
         return Button(this).apply {
-            text = t; textSize = 12f; isAllCaps = false
-            setTextColor(Color.WHITE)
+            text = t; textSize = 12f; isAllCaps = false; setTextColor(Color.WHITE)
             background = GradientDrawable().apply {
-                cornerRadius = dp(8).toFloat()
-                setColor(0xFF5856D6.toInt())
+                cornerRadius = dp(8).toFloat(); setColor(0xFF5856D6.toInt())
             }
             setPadding(dp(12), dp(4), dp(12), dp(4))
             layoutParams = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
             ).apply { topMargin = dp(4); bottomMargin = dp(8) }
             setOnClickListener { click() }
         }
@@ -256,26 +279,20 @@ class MainActivity : AppCompatActivity() {
 
     private fun toolBtn(t: String, click: () -> Unit): Button {
         return Button(this).apply {
-            text = t; textSize = 13f; isAllCaps = false
-            setTextColor(Color.WHITE)
+            text = t; textSize = 13f; isAllCaps = false; setTextColor(Color.WHITE)
             background = GradientDrawable().apply {
-                cornerRadius = dp(8).toFloat()
-                setColor(0xFFFF9500.toInt())
+                cornerRadius = dp(8).toFloat(); setColor(0xFFFF9500.toInt())
             }
             layoutParams = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                dp(44)
-            )
+                LinearLayout.LayoutParams.MATCH_PARENT, dp(44))
             setOnClickListener { click() }
         }
     }
 
     private fun sliderLabel(parent: LinearLayout, name: String, value: Int, unit: String): TextView {
         val tv = TextView(this).apply {
-            text = "$name: $value $unit"
-            textSize = 13f
-            setTextColor(0xFF333333.toInt())
-            setPadding(dp(4), dp(4), 0, 0)
+            text = "$name: $value $unit"; textSize = 13f
+            setTextColor(0xFF333333.toInt()); setPadding(dp(4), dp(4), 0, 0)
         }
         parent.addView(tv)
         return tv
@@ -285,8 +302,7 @@ class MainActivity : AppCompatActivity() {
         return SeekBar(this).apply {
             this.max = max; progress = cur
             layoutParams = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
             ).apply { topMargin = dp(2); bottomMargin = dp(4) }
             setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
                 override fun onProgressChanged(sb: SeekBar?, v: Int, user: Boolean) { if (user) onChange(v) }
@@ -317,9 +333,4 @@ class MainActivity : AppCompatActivity() {
     private fun dp(v: Int) = (v * resources.displayMetrics.density).toInt()
     private fun spc(h: Int): View { val v = View(this); v.layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(h)); return v }
     private fun divider(): View { val v = View(this); v.layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(1)).apply { topMargin = dp(4); bottomMargin = dp(4) }; v.setBackgroundColor(0xFFEEEEEE.toInt()); return v }
-    private fun tv(t: String, s: Float, bold: Boolean = false, c: Int = 0xFF000000.toInt()) = TextView(this).apply {
-        text = t; textSize = s; setTextColor(c)
-        if (bold) typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
-        layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
-    }
 }
