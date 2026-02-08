@@ -99,5 +99,6 @@ object IslandStateManager {
         }
     }
 
+    fun toggleExpanded() { _state.update { it.copy(expanded = !it.expanded) } }
     fun setMode(mode: IslandMode) { _state.update { it.copy(mode = mode) } }
 }
