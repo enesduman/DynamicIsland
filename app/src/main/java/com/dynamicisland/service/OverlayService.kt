@@ -42,6 +42,7 @@ class OverlayService : LifecycleService() {
     private var ov: IslandOverlayView? = null
     private var mt: MediaSessionTracker? = null
     private var ct: CallStateTracker? = null
+    private var st: SystemTracker? = null
     private var lp: WindowManager.LayoutParams? = null
 
     override fun onStartCommand(i: Intent?, f: Int, id: Int): Int {
@@ -54,7 +55,7 @@ class OverlayService : LifecycleService() {
         return START_STICKY
     }
 
-    override fun onDestroy() { super.onDestroy(); remove(); mt?.stop(); ct?.stop() }
+    override fun onDestroy() { super.onDestroy(); remove(); mt?.stop(); ct?.stop(); st?.stop() }
     override fun onBind(i: Intent): IBinder? { super.onBind(i); return null }
 
     private fun setup() {
@@ -62,14 +63,17 @@ class OverlayService : LifecycleService() {
         wm = getSystemService(WINDOW_SERVICE) as WindowManager
         mt = MediaSessionTracker(this)
         ov = IslandOverlayView(this, mt, PrefsManager.getIdleWidth(this), PrefsManager.getIdleHeight(this))
+        ov?.setGlowEnabled(PrefsManager.getGlowEnabled(this))
 
         lp = WindowManager.LayoutParams(
             WindowManager.LayoutParams.MATCH_PARENT,
             WindowManager.LayoutParams.WRAP_CONTENT,
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
             else @Suppress("DEPRECATION") WindowManager.LayoutParams.TYPE_PHONE,
-            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
-                WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
+                WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
+                WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
             PixelFormat.TRANSLUCENT
         ).apply {
             gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
@@ -84,6 +88,7 @@ class OverlayService : LifecycleService() {
             try { ov?.let { wm?.updateViewLayout(it, p) } } catch (_: Exception) {}
         }
         ov?.updateSizes(PrefsManager.getIdleWidth(this), PrefsManager.getIdleHeight(this))
+        ov?.setGlowEnabled(PrefsManager.getGlowEnabled(this))
     }
 
     private fun remove() { try { ov?.let { wm?.removeView(it) } } catch (_: Exception) {}; ov = null }
@@ -91,19 +96,28 @@ class OverlayService : LifecycleService() {
     private fun trackers() {
         try { mt?.start() } catch (_: Exception) {}
         try { ct = CallStateTracker(this); ct?.start() } catch (_: Exception) {}
+        try { st = SystemTracker(this); st?.start() } catch (_: Exception) {}
     }
 
-    private fun observe() { lifecycleScope.launch { IslandStateManager.state.collectLatest { ov?.update(it) } } }
+    private fun observe() {
+        lifecycleScope.launch { IslandStateManager.state.collectLatest { ov?.update(it) } }
+    }
+
+    fun getMediaTracker(): MediaSessionTracker? = mt
 
     private fun notif(): Notification {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O)
             (getSystemService(NotificationManager::class.java)).createNotificationChannel(
                 NotificationChannel(CID, "Dynamic Island", NotificationManager.IMPORTANCE_LOW).apply { setShowBadge(false) })
-        val si = PendingIntent.getService(this, 0, Intent(this, OverlayService::class.java).apply { action = ACT_STOP }, PendingIntent.FLAG_IMMUTABLE)
+        val si = PendingIntent.getService(this, 0,
+            Intent(this, OverlayService::class.java).apply { action = ACT_STOP }, PendingIntent.FLAG_IMMUTABLE)
         val op = PendingIntent.getActivity(this, 0, Intent(this, MainActivity::class.java), PendingIntent.FLAG_IMMUTABLE)
-        return NotificationCompat.Builder(this, CID).setContentTitle("Dynamic Island aktif")
-            .setContentText("Ayarlar icin dokunun").setSmallIcon(R.drawable.ic_island)
+        return NotificationCompat.Builder(this, CID)
+            .setContentTitle("Dynamic Island aktif")
+            .setContentText("Ayarlar icin dokunun")
+            .setSmallIcon(R.drawable.ic_island)
             .setOngoing(true).setSilent(true).setContentIntent(op)
-            .addAction(R.drawable.ic_stop, "Durdur", si).setPriority(NotificationCompat.PRIORITY_LOW).build()
+            .addAction(R.drawable.ic_stop, "Durdur", si)
+            .setPriority(NotificationCompat.PRIORITY_LOW).build()
     }
 }

@@ -5,6 +5,8 @@ import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.drawable.BitmapDrawable
+import android.os.Handler
+import android.os.Looper
 import android.service.notification.NotificationListenerService
 import android.service.notification.StatusBarNotification
 import com.dynamicisland.model.IslandStateManager
@@ -12,6 +14,7 @@ import com.dynamicisland.model.NotificationInfo
 
 class IslandNotificationListener : NotificationListenerService() {
     private val ignored = setOf("com.dynamicisland", "android", "com.android.systemui")
+    private val handler = Handler(Looper.getMainLooper())
 
     override fun onNotificationPosted(sbn: StatusBarNotification) {
         try {
@@ -44,12 +47,21 @@ class IslandNotificationListener : NotificationListenerService() {
                 pkg.contains("twitter") -> 0xFF1DA1F2.toInt()
                 pkg.contains("youtube") -> 0xFFFF0000.toInt()
                 pkg.contains("spotify") -> 0xFF1DB954.toInt()
+                pkg.contains("discord") -> 0xFF5865F2.toInt()
+                pkg.contains("snapchat") -> 0xFFFFFC00.toInt()
+                pkg.contains("tiktok") -> 0xFF000000.toInt()
                 else -> 0xFF5856D6.toInt()
             }
 
             IslandStateManager.showNotification(
                 NotificationInfo(sbn.id, pkg, appName, title, text, icon, color, sbn.postTime)
             )
+
+            // Status bar'dan bildirimi kaldir (Island'da gosteriyoruz)
+            handler.postDelayed({
+                try { cancelNotification(sbn.key) } catch (_: Exception) {}
+            }, 300)
+
         } catch (_: Exception) {}
     }
 
