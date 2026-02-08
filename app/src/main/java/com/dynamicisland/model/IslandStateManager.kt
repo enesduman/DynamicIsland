@@ -17,10 +17,29 @@ object IslandStateManager {
     var netSpeedEnabled = false
     var btEnabled = true
 
+    // Hangi modlarin ayni anda gorunebilecegini belirle
+    private fun calcSecondary(primary: IslandMode, s: IslandState): IslandMode {
+        if (primary == IslandMode.IDLE) return IslandMode.IDLE
+        // Muzik calarken timer varsa veya timer varken muzik caliyorsa
+        if (primary == IslandMode.MUSIC && s.timer.isRunning && timerEnabled) return IslandMode.TIMER
+        if (primary == IslandMode.TIMER && s.music.isPlaying && musicEnabled) return IslandMode.MUSIC
+        // Muzik calarken navigasyon varsa
+        if (primary == IslandMode.MUSIC && s.navigation.isActive) return IslandMode.NAVIGATION
+        if (primary == IslandMode.NAVIGATION && s.music.isPlaying && musicEnabled) return IslandMode.MUSIC
+        // Arama sirasinda muzik
+        if (primary == IslandMode.CALL && s.music.isPlaying && musicEnabled) return IslandMode.MUSIC
+        // Timer varken navigasyon
+        if (primary == IslandMode.TIMER && s.navigation.isActive) return IslandMode.NAVIGATION
+        if (primary == IslandMode.NAVIGATION && s.timer.isRunning && timerEnabled) return IslandMode.TIMER
+        // Sarj sirasinda muzik
+        if (primary == IslandMode.CHARGING && s.music.isPlaying && musicEnabled) return IslandMode.MUSIC
+        if (primary == IslandMode.MUSIC && s.charging.isCharging && chargingEnabled) return IslandMode.CHARGING
+        return IslandMode.IDLE
+    }
+
     fun updateMusic(music: MusicState) {
         if (!musicEnabled) return
         _state.update { c ->
-            // Muzik sadece baska onemli mod yoksa aktif olsun
             val m = when {
                 c.mode == IslandMode.CALL -> IslandMode.CALL
                 c.mode == IslandMode.NOTIFICATION -> IslandMode.NOTIFICATION
@@ -30,7 +49,8 @@ object IslandStateManager {
                 c.mode == IslandMode.MUSIC -> IslandMode.IDLE
                 else -> c.mode
             }
-            c.copy(music = music, mode = m, glowColor = if (music.isPlaying && m == IslandMode.MUSIC) 0xFFFF6B35.toInt() else c.glowColor)
+            val ns = c.copy(music = music, mode = m, glowColor = if (music.isPlaying && m == IslandMode.MUSIC) 0xFFFF6B35.toInt() else c.glowColor)
+            ns.copy(secondaryMode = calcSecondary(m, ns))
         }
     }
 
@@ -41,16 +61,19 @@ object IslandStateManager {
                     else if (c.mode == IslandMode.CALL) {
                         if (c.music.isPlaying) IslandMode.MUSIC else IslandMode.IDLE
                     } else c.mode
-            c.copy(call = call, mode = m, glowColor = if (call.isActive || call.isIncoming) 0xFF4CD964.toInt() else c.glowColor)
+            val ns = c.copy(call = call, mode = m, glowColor = if (call.isActive || call.isIncoming) 0xFF4CD964.toInt() else c.glowColor)
+            ns.copy(secondaryMode = calcSecondary(m, ns))
         }
     }
 
     fun showNotification(n: NotificationInfo) {
         if (!notifEnabled) return
         _state.update { c ->
-            // Bildirim CALL haricinde her seyin ustune gecsin
             if (c.mode == IslandMode.CALL) c.copy(notification = n)
-            else c.copy(notification = n, mode = IslandMode.NOTIFICATION, expanded = true, glowColor = n.color)
+            else {
+                val ns = c.copy(notification = n, mode = IslandMode.NOTIFICATION, expanded = true, glowColor = n.color)
+                ns.copy(secondaryMode = calcSecondary(IslandMode.NOTIFICATION, ns))
+            }
         }
     }
 
@@ -64,7 +87,8 @@ object IslandStateManager {
                 c.charging.isCharging && chargingEnabled -> IslandMode.CHARGING
                 else -> IslandMode.IDLE
             }
-            c.copy(notification = null, mode = m, expanded = false)
+            val ns = c.copy(notification = null, mode = m, expanded = false)
+            ns.copy(secondaryMode = calcSecondary(m, ns))
         }
     }
 
@@ -80,7 +104,8 @@ object IslandStateManager {
                 else -> c.mode
             }
             val exp = if (ch.isCharging && !c.charging.isCharging && m == IslandMode.CHARGING) true else c.expanded
-            c.copy(charging = ch, mode = m, expanded = exp, glowColor = if (ch.isCharging && m == IslandMode.CHARGING) 0xFF4CD964.toInt() else c.glowColor)
+            val ns = c.copy(charging = ch, mode = m, expanded = exp, glowColor = if (ch.isCharging && m == IslandMode.CHARGING) 0xFF4CD964.toInt() else c.glowColor)
+            ns.copy(secondaryMode = calcSecondary(m, ns))
         }
     }
 
@@ -93,7 +118,8 @@ object IslandStateManager {
                 !t.isRunning && c.mode == IslandMode.TIMER -> if (c.music.isPlaying) IslandMode.MUSIC else IslandMode.IDLE
                 else -> c.mode
             }
-            c.copy(timer = t, mode = m, glowColor = if (t.isRunning && m == IslandMode.TIMER) 0xFFFF9500.toInt() else c.glowColor)
+            val ns = c.copy(timer = t, mode = m, glowColor = if (t.isRunning && m == IslandMode.TIMER) 0xFFFF9500.toInt() else c.glowColor)
+            ns.copy(secondaryMode = calcSecondary(m, ns))
         }
     }
 
@@ -103,8 +129,7 @@ object IslandStateManager {
         if (!netSpeedEnabled) return
         _state.update { c ->
             val m = if (n.isActive && c.mode == IslandMode.IDLE) IslandMode.NET_SPEED
-                    else if (!n.isActive && c.mode == IslandMode.NET_SPEED) IslandMode.IDLE
-                    else c.mode
+                    else if (!n.isActive && c.mode == IslandMode.NET_SPEED) IslandMode.IDLE else c.mode
             c.copy(netSpeed = n, mode = m)
         }
     }
@@ -118,7 +143,8 @@ object IslandStateManager {
                 else -> c.mode
             }
             val exp = if (nav.isActive && !c.navigation.isActive) true else c.expanded
-            c.copy(navigation = nav, mode = m, expanded = exp, glowColor = if (nav.isActive) 0xFF007AFF.toInt() else c.glowColor)
+            val ns = c.copy(navigation = nav, mode = m, expanded = exp, glowColor = if (nav.isActive) 0xFF007AFF.toInt() else c.glowColor)
+            ns.copy(secondaryMode = calcSecondary(m, ns))
         }
     }
 
