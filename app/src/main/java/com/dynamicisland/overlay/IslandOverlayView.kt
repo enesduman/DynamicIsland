@@ -51,6 +51,7 @@ class IslandOverlayView(
     private val EXPANDED_RADIUS = 24f
     private val IDLE_RADIUS = 16f
     private val AUTO_COLLAPSE_MS = 5000L
+    private val NOTIF_DISMISS_MS = 3000L
     private val SPLIT_GAP = 8f
 
     init {
@@ -196,7 +197,9 @@ class IslandOverlayView(
         if (s.expanded && !prev.expanded) animTo(true, s)
         else if (!s.expanded && prev.expanded) animTo(false, s)
         if (s.expanded) expanded(s) else compact(s)
-        if (s.mode == IslandMode.NOTIFICATION && s.expanded) autoDismiss()
+        if (s.mode == IslandMode.NOTIFICATION) autoDismiss()
+        // Expanded iken auto collapse
+        if (s.expanded && s.mode != IslandMode.NOTIFICATION) scheduleAutoCollapse()
         updateGlow(s.glowColor)
         updateSecondary(s)
     }
@@ -483,7 +486,12 @@ class IslandOverlayView(
     }
 
     private fun autoDismiss() {
-        dismissR?.let { handler.removeCallbacks(it) }; dismissR = Runnable { IslandStateManager.dismissNotification() }; handler.postDelayed(dismissR!!, 4000)
+        dismissR?.let { handler.removeCallbacks(it) }
+        dismissR = Runnable {
+            IslandStateManager.dismissNotification()
+            if (cur.expanded) IslandStateManager.toggleExpanded()
+        }
+        handler.postDelayed(dismissR!!, NOTIF_DISMISS_MS)
     }
 
     // ═══ HELPERS ═══
