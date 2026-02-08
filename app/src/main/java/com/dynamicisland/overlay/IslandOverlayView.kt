@@ -17,6 +17,7 @@ import android.view.View
 import android.view.animation.OvershootInterpolator
 import android.widget.*
 import com.dynamicisland.model.*
+import com.dynamicisland.model.IslandStateManager
 import com.dynamicisland.service.MediaSessionTracker
 import com.dynamicisland.service.TimerManager
 
