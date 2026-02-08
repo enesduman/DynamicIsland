@@ -7,8 +7,9 @@ import com.dynamicisland.service.OverlayService
 import com.dynamicisland.util.PrefsManager
 
 class BootReceiver : BroadcastReceiver() {
-    override fun onReceive(ctx: Context, intent: Intent) {
-        if (intent.action == Intent.ACTION_BOOT_COMPLETED && PrefsManager.isEnabled(ctx))
-            OverlayService.start(ctx)
+    override fun onReceive(context: Context, intent: Intent) {
+        if (intent.action == Intent.ACTION_BOOT_COMPLETED && PrefsManager.isEnabled(context)) {
+            OverlayService.start(context)
+        }
     }
 }

@@ -8,15 +8,16 @@ import com.dynamicisland.model.ChargingState
 import com.dynamicisland.model.IslandStateManager
 
 class PowerReceiver : BroadcastReceiver() {
-    override fun onReceive(ctx: Context, intent: Intent) {
-        val bm = ctx.getSystemService(Context.BATTERY_SERVICE) as BatteryManager
-        val lv = bm.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY)
-        when (intent.action) {
-            Intent.ACTION_POWER_CONNECTED -> {
-                val p = intent.getIntExtra(BatteryManager.EXTRA_PLUGGED, -1)
-                IslandStateManager.updateCharging(ChargingState(true, lv, p == BatteryManager.BATTERY_PLUGGED_USB, p == BatteryManager.BATTERY_PLUGGED_AC))
-            }
-            Intent.ACTION_POWER_DISCONNECTED -> IslandStateManager.updateCharging(ChargingState(false, lv))
-        }
+    override fun onReceive(context: Context, intent: Intent) {
+        val bm = context.getSystemService(Context.BATTERY_SERVICE) as BatteryManager
+        val level = bm.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY)
+        val isCharging = intent.action == Intent.ACTION_POWER_CONNECTED
+
+        IslandStateManager.updateCharging(ChargingState(
+            isCharging = isCharging,
+            level = level,
+            isUSB = false,
+            isFast = false
+        ))
     }
 }

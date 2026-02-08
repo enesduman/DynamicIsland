@@ -1,6 +1,5 @@
 package com.dynamicisland.service
 
-import android.app.KeyguardManager
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -10,15 +9,18 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.graphics.PixelFormat
+import android.os.BatteryManager
 import android.os.Build
 import android.os.IBinder
 import android.view.Gravity
+import android.view.View
 import android.view.WindowManager
 import androidx.core.app.NotificationCompat
 import androidx.lifecycle.LifecycleService
 import androidx.lifecycle.lifecycleScope
 import com.dynamicisland.MainActivity
 import com.dynamicisland.R
+import com.dynamicisland.model.ChargingState
 import com.dynamicisland.model.IslandStateManager
 import com.dynamicisland.overlay.IslandOverlayView
 import com.dynamicisland.util.PrefsManager
@@ -47,7 +49,7 @@ class OverlayService : LifecycleService() {
     private var ct: CallStateTracker? = null
     private var st: SystemTracker? = null
     private var lp: WindowManager.LayoutParams? = null
-    private var screenReceiver: BroadcastReceiver? = null
+    private var batteryReceiver: BroadcastReceiver? = null
 
     override fun onStartCommand(i: Intent?, f: Int, id: Int): Int {
         super.onStartCommand(i, f, id)
@@ -60,7 +62,7 @@ class OverlayService : LifecycleService() {
                 setup()
                 trackers()
                 observe()
-                registerScreenReceiver()
+                registerBattery()
             }
         }
         return START_STICKY
@@ -72,7 +74,7 @@ class OverlayService : LifecycleService() {
         mt?.stop()
         ct?.stop()
         st?.stop()
-        screenReceiver?.let { try { unregisterReceiver(it) } catch (_: Exception) {} }
+        batteryReceiver?.let { try { unregisterReceiver(it) } catch (_: Exception) {} }
     }
 
     override fun onBind(i: Intent): IBinder? { super.onBind(i); return null }
@@ -94,17 +96,21 @@ class OverlayService : LifecycleService() {
         ov = IslandOverlayView(this, mt, PrefsManager.getIdleWidth(this), PrefsManager.getIdleHeight(this))
         ov?.setGlowEnabled(PrefsManager.getGlowEnabled(this))
 
+        val wmType = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O)
+            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
+        else @Suppress("DEPRECATION") WindowManager.LayoutParams.TYPE_PHONE
+
         lp = WindowManager.LayoutParams(
             WindowManager.LayoutParams.MATCH_PARENT,
             WindowManager.LayoutParams.WRAP_CONTENT,
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
-            else @Suppress("DEPRECATION") WindowManager.LayoutParams.TYPE_PHONE,
+            wmType,
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
                 WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
                 WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
                 WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS or
                 WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED or
-                WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON,
+                WindowManager.LayoutParams.FLAG_DISMISS_KEYGUARD or
+                WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON,
             PixelFormat.TRANSLUCENT
         ).apply {
             gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
@@ -116,30 +122,27 @@ class OverlayService : LifecycleService() {
         try { wm?.addView(ov, lp) } catch (_: Exception) {}
     }
 
-    private fun registerScreenReceiver() {
-        screenReceiver = object : BroadcastReceiver() {
+    private fun registerBattery() {
+        batteryReceiver = object : BroadcastReceiver() {
             override fun onReceive(context: Context, intent: Intent) {
-                when (intent.action) {
-                    Intent.ACTION_SCREEN_OFF -> {
-                        // Ekran kapandi - island'i gizleme, kilit ekraninda gorsun
-                    }
-                    Intent.ACTION_SCREEN_ON -> {
-                        // Ekran acildi - island'i goster
-                        ov?.visibility = android.view.View.VISIBLE
-                    }
-                    Intent.ACTION_USER_PRESENT -> {
-                        // Kilit acildi
-                        ov?.visibility = android.view.View.VISIBLE
-                    }
-                }
+                val status = intent.getIntExtra(BatteryManager.EXTRA_STATUS, -1)
+                val isCharging = status == BatteryManager.BATTERY_STATUS_CHARGING || status == BatteryManager.BATTERY_STATUS_FULL
+                val level = intent.getIntExtra(BatteryManager.EXTRA_LEVEL, 0)
+                val scale = intent.getIntExtra(BatteryManager.EXTRA_SCALE, 100)
+                val pct = (level * 100) / scale
+                val plugged = intent.getIntExtra(BatteryManager.EXTRA_PLUGGED, 0)
+                val isFast = plugged == BatteryManager.BATTERY_PLUGGED_AC
+
+                IslandStateManager.updateCharging(ChargingState(
+                    isCharging = isCharging,
+                    level = pct,
+                    isUSB = plugged == BatteryManager.BATTERY_PLUGGED_USB,
+                    isFast = isFast
+                ))
             }
         }
-        val filter = IntentFilter().apply {
-            addAction(Intent.ACTION_SCREEN_OFF)
-            addAction(Intent.ACTION_SCREEN_ON)
-            addAction(Intent.ACTION_USER_PRESENT)
-        }
-        registerReceiver(screenReceiver, filter)
+        val filter = IntentFilter(Intent.ACTION_BATTERY_CHANGED)
+        registerReceiver(batteryReceiver, filter)
     }
 
     private fun refreshOverlay() {
@@ -184,6 +187,7 @@ class OverlayService : LifecycleService() {
             .addAction(R.drawable.ic_stop, "Durdur", si)
             .setPriority(NotificationCompat.PRIORITY_MIN)
             .setVisibility(NotificationCompat.VISIBILITY_SECRET)
+            .setForegroundServiceBehavior(NotificationCompat.FOREGROUND_SERVICE_IMMEDIATE)
             .build()
     }
 }

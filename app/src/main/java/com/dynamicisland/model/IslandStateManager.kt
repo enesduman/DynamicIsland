@@ -20,9 +20,17 @@ object IslandStateManager {
     fun updateMusic(music: MusicState) {
         if (!musicEnabled) return
         _state.update { c ->
-            val m = if (music.isPlaying) IslandMode.MUSIC
-                    else if (c.mode == IslandMode.MUSIC) IslandMode.IDLE else c.mode
-            c.copy(music = music, mode = m, glowColor = if (music.isPlaying) 0xFFFF6B35.toInt() else c.glowColor)
+            // Muzik sadece baska onemli mod yoksa aktif olsun
+            val m = when {
+                c.mode == IslandMode.CALL -> IslandMode.CALL
+                c.mode == IslandMode.NOTIFICATION -> IslandMode.NOTIFICATION
+                c.mode == IslandMode.NAVIGATION -> IslandMode.NAVIGATION
+                c.mode == IslandMode.TIMER && c.timer.isRunning -> IslandMode.TIMER
+                music.isPlaying -> IslandMode.MUSIC
+                c.mode == IslandMode.MUSIC -> IslandMode.IDLE
+                else -> c.mode
+            }
+            c.copy(music = music, mode = m, glowColor = if (music.isPlaying && m == IslandMode.MUSIC) 0xFFFF6B35.toInt() else c.glowColor)
         }
     }
 
@@ -40,6 +48,7 @@ object IslandStateManager {
     fun showNotification(n: NotificationInfo) {
         if (!notifEnabled) return
         _state.update { c ->
+            // Bildirim CALL haricinde her seyin ustune gecsin
             if (c.mode == IslandMode.CALL) c.copy(notification = n)
             else c.copy(notification = n, mode = IslandMode.NOTIFICATION, expanded = true, glowColor = n.color)
         }
@@ -49,9 +58,10 @@ object IslandStateManager {
         _state.update { c ->
             val m = when {
                 c.call.isActive -> IslandMode.CALL
+                c.navigation.isActive -> IslandMode.NAVIGATION
+                c.timer.isRunning && timerEnabled -> IslandMode.TIMER
                 c.music.isPlaying -> IslandMode.MUSIC
                 c.charging.isCharging && chargingEnabled -> IslandMode.CHARGING
-                c.timer.isRunning && timerEnabled -> IslandMode.TIMER
                 else -> IslandMode.IDLE
             }
             c.copy(notification = null, mode = m, expanded = false)
@@ -62,23 +72,28 @@ object IslandStateManager {
         if (!chargingEnabled) return
         _state.update { c ->
             val m = when {
-                ch.isCharging && c.mode == IslandMode.IDLE -> IslandMode.CHARGING
+                c.mode == IslandMode.CALL || c.mode == IslandMode.MUSIC || c.mode == IslandMode.NOTIFICATION -> c.mode
+                ch.isCharging && !c.charging.isCharging -> IslandMode.CHARGING
                 ch.isCharging && c.mode == IslandMode.CHARGING -> IslandMode.CHARGING
-                !ch.isCharging && c.mode == IslandMode.CHARGING -> IslandMode.IDLE
+                ch.isCharging && c.mode == IslandMode.IDLE -> IslandMode.CHARGING
+                !ch.isCharging && c.mode == IslandMode.CHARGING -> if (c.music.isPlaying) IslandMode.MUSIC else IslandMode.IDLE
                 else -> c.mode
             }
-            val exp = if (ch.isCharging && !c.charging.isCharging) true else c.expanded
-            c.copy(charging = ch, mode = m, expanded = exp, glowColor = if (ch.isCharging) 0xFF4CD964.toInt() else c.glowColor)
+            val exp = if (ch.isCharging && !c.charging.isCharging && m == IslandMode.CHARGING) true else c.expanded
+            c.copy(charging = ch, mode = m, expanded = exp, glowColor = if (ch.isCharging && m == IslandMode.CHARGING) 0xFF4CD964.toInt() else c.glowColor)
         }
     }
 
     fun updateTimer(t: TimerState) {
         if (!timerEnabled) return
         _state.update { c ->
-            val m = if (t.isRunning && (c.mode == IslandMode.IDLE || c.mode == IslandMode.TIMER)) IslandMode.TIMER
-                    else if (!t.isRunning && c.mode == IslandMode.TIMER) IslandMode.IDLE
-                    else c.mode
-            c.copy(timer = t, mode = m, glowColor = if (t.isRunning) 0xFFFF9500.toInt() else c.glowColor)
+            val m = when {
+                c.mode == IslandMode.CALL || c.mode == IslandMode.NOTIFICATION -> c.mode
+                t.isRunning && (c.mode == IslandMode.IDLE || c.mode == IslandMode.TIMER || c.mode == IslandMode.CHARGING) -> IslandMode.TIMER
+                !t.isRunning && c.mode == IslandMode.TIMER -> if (c.music.isPlaying) IslandMode.MUSIC else IslandMode.IDLE
+                else -> c.mode
+            }
+            c.copy(timer = t, mode = m, glowColor = if (t.isRunning && m == IslandMode.TIMER) 0xFFFF9500.toInt() else c.glowColor)
         }
     }
 
@@ -96,9 +111,14 @@ object IslandStateManager {
 
     fun updateNavigation(nav: NavigationState) {
         _state.update { c ->
-            val m = if (nav.isActive) IslandMode.NAVIGATION
-                    else if (c.mode == IslandMode.NAVIGATION) IslandMode.IDLE else c.mode
-            c.copy(navigation = nav, mode = m)
+            val m = when {
+                c.mode == IslandMode.CALL -> IslandMode.CALL
+                nav.isActive -> IslandMode.NAVIGATION
+                c.mode == IslandMode.NAVIGATION -> if (c.music.isPlaying) IslandMode.MUSIC else IslandMode.IDLE
+                else -> c.mode
+            }
+            val exp = if (nav.isActive && !c.navigation.isActive) true else c.expanded
+            c.copy(navigation = nav, mode = m, expanded = exp, glowColor = if (nav.isActive) 0xFF007AFF.toInt() else c.glowColor)
         }
     }
 
